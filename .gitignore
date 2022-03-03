@@ -1,5 +1,6 @@
 # Ignore the following directories
 archive/
+assets/
 metrics/
 processed_data/
 raw_data/

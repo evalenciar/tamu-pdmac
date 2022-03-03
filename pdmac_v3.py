@@ -254,6 +254,8 @@ def data_to_image(sd_radius, dr_IR, axial_len=100, circ_len=100):
     
     # Assuming that all dents are the deepest points on the wall surface
     min_ind = np.unravel_index(np.argmin(sd_radius), sd_radius.shape)
+    half = int(sd_radius.shape[0]/2)
+    sd_radius = np.roll(sd_radius, half - min_ind[0], axis=0)
     
     # Copy and paste from the center to the limits
     axial_LB = min_ind[0] - int(axial_len/2)

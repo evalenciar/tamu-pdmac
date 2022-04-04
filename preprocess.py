@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-PDMAC (Repurposed)
-Created on 02/09/2022
+Pre-Process
+Formerlly PDMAC
+Created on 02/22/2022
+Updated on 04/04/2022
 
-Vendor 1
+Vendors 1, 2 and 3
 
 The objective of this tool is to run through all of the .csv files in a folder, 
 identify the scf_database.xlsx file, and prepare the data input files to use in
@@ -21,31 +23,26 @@ from scipy.signal import savgol_filter
 import matplotlib.pyplot as plt
 
 # Variable nomenclature
-# dr - dent registry
-# rd - raw data
-# sd - smooth data
-# pd - image data
+# dr        - dent registry
+# rd        - raw data
+# sd        - smooth data
+# pd        - image data
 # rd_axial  - [inches]  Axial relative position from start value
 # rd_circ   - [degrees] Circumferential position
 # rd_radius - [inches]  Radius difference from nominal internal radius
 
-# Vendor 1
-# Data is all in Column A with delimiter ';' with 12 header rows that need to
-# be removed before accessing the actual data
-rd_axial_row = 12  # Row 13 = Index 12
-rd_drop_tail = 2
 dr_header_row = 1  # Row 2  = Index 1
 
 # Output Data size
-axial_len = 200
-circ_len = 200
+axial_len   = 200
+circ_len    = 200
 # Data Smoothing
 data_smoothing_bool = True
 
 time_start = time.time()
-raw_data_path = 'raw_data'
+raw_data_path       = 'raw_data'
 processed_data_path = 'processed_data'
-training_data_path = 'training_data'
+training_data_path  = 'training_data'
 
 print('========== START ==========')
 print('%03d | Program began execution.' % (time.time() - time_start))
@@ -55,6 +52,11 @@ print('%03d | Program began execution.' % (time.time() - time_start))
 # =============================================================================
 
 def collect_raw_data_v1(rd_path):
+    # Collect raw data in vendor 1 formatting
+    # Data is all in Column A with delimiter ';' with 12 header rows that need to
+    # be removed before accessing the actual data
+    rd_axial_row = 12  # Row 13 = Index 12
+    rd_drop_tail = 2
     rd = pd.read_csv(rd_path, header=None)
     # Drop the first set of rows that are not being used
     rd.drop(rd.head(rd_axial_row).index, inplace=True)
@@ -82,6 +84,61 @@ def collect_raw_data_v1(rd_path):
     # Drop the two first columns: Circumferential in o'Clock and in Length inches
     rd.drop(rd.columns[[0,1]], axis=1, inplace=True)
     rd_radius = rd.to_numpy().astype(float)
+    return rd_axial, rd_circ, rd_radius
+
+def collect_raw_data_v2(rd_path):
+    # Collect raw data in vendor 2 formatting
+    rd = pd.read_csv(rd_path, header=None)
+    # Axial values are in row direction
+    rd_axial = rd[0].to_numpy().astype(float)
+    rd_axial = np.delete(rd_axial, 0)
+    # Convert ft values to relative inches
+    rd_axial = [12*(x - rd_axial[0]) for x in rd_axial]
+    rd_axial = np.array(rd_axial)
+    # Circumferential positioning as caliper number in column direction
+    rd_circ = rd.loc[0].to_numpy().astype(float)
+    rd_circ = np.delete(rd_circ, 0)
+    # Since circumferential positioning may not be in the numerical order
+    rd_circ = np.arange(0, len(rd_circ))
+    # Convert from number to degrees
+    rd_circ = [(x*360/len(rd_circ)) for x in rd_circ]
+    rd_circ = np.array(rd_circ)
+    # Drop the first row and column
+    rd.drop(rd.head(1).index, inplace=True)
+    rd.drop(rd.columns[0], axis=1, inplace=True)
+    # Collect radial values and make sure to transpose so that [r x c] = [circ x axial]
+    # Make the data negative since it is reading in the opposite direction
+    rd_radius = -rd.to_numpy().astype(float).T
+    return rd_axial, rd_circ, rd_radius
+
+def collect_raw_data_v3(rd_path):
+    # Collect raw data in vedor 3 formatting
+    rd = pd.read_csv(rd_path, header=None)
+    # First row gives original orientation of each sensor. This code does not consider orientation, so delete.
+    rd.drop(rd.head(3).index, inplace=True)
+    # Drop any columns with 'NaN' trailing at the end
+    rd = rd.dropna(axis=1, how='all')
+    # Axial values are in row direction, starting from row 4 (delete first 3 rows)
+    rd_axial = rd[0].to_numpy().astype(float)
+    # Convert ft values to relative inches
+    rd_axial = [12*(x - rd_axial[0]) for x in rd_axial]
+    rd_axial = np.array(rd_axial)
+    # Circumferential positioning as caliper number in column 
+    # Start from 3 since first three rows were dropped
+    rd_circ = rd.loc[3].to_numpy().astype(float)
+    rd_circ = np.delete(rd_circ, 0)
+    # Since circumferential positioning may not be in the numerical order
+    rd_circ = np.arange(0, len(rd_circ))
+    # Convert from number to degrees
+    rd_circ = [(x*360/len(rd_circ)) for x in rd_circ]
+    rd_circ = np.array(rd_circ)
+    # Drop the first column
+    rd.drop(rd.columns[0], axis=1, inplace=True)
+    # Collect radial values and make sure to transpose so that [r x c] = [circ x axial]
+    rd_radius = rd.to_numpy().astype(float).T
+    # The radial data needs to be the difference form the nominal radius
+    # Anything negative means IN and positive means OUT
+    rd_radius = rd_radius - dr_IR
     return rd_axial, rd_circ, rd_radius
 
 def collect_dent_registry_v1(dr, rd_DentRef):
@@ -186,8 +243,23 @@ def data_to_image(sd_radius, dr_IR, axial_len=100, circ_len=100):
     # axial_len = 100
     # circ_len = 100
     
-    # Location of the lowest point
+    # Only use the commented out code below if the dent could be either the
+    # deepest or most protruding dent on the wall surface.
+    
+    # # Location of the largest absolute value point
+    # if abs(np.min(sd_radius)) > abs(np.max(sd_radius)):
+    #     # The INTERNAL deflection is greater
+    #     min_ind = np.unravel_index(np.argmin(sd_radius), sd_radius.shape)
+    # else:
+    #     # The EXTERNAL deflection is greater, 
+    #     min_ind = np.unravel_index(np.argmax(sd_radius), sd_radius.shape)
+    
+    # Assuming that all dents are the deepest points on the wall surface
     min_ind = np.unravel_index(np.argmin(sd_radius), sd_radius.shape)
+    half = int(sd_radius.shape[0]/2)
+    sd_radius = np.roll(sd_radius, half - min_ind[0], axis=0)
+    min_ind = np.unravel_index(np.argmin(sd_radius), sd_radius.shape)
+    
     # Copy and paste from the center to the limits
     axial_LB = min_ind[0] - int(axial_len/2)
     axial_UB = min_ind[0] + int(axial_len/2)
@@ -226,7 +298,7 @@ def data_to_image(sd_radius, dr_IR, axial_len=100, circ_len=100):
     plt.figure()
     plt.xticks([])
     plt.yticks([])
-    plt.imshow(pd_radius, cmap=plt.cm.binary)
+    plt.imshow(pd_radius, cmap=plt.cm.RdYlGn)
     plt.xlabel(str(rd_DentRef))
     plt.colorbar()
     plt.grid(False)
@@ -238,14 +310,16 @@ def data_to_image(sd_radius, dr_IR, axial_len=100, circ_len=100):
 # ITERATE THROUGH ALL ILI DATA FILES
 # =============================================================================
 
+# Updated the for loop to go through deeper folders
 for subdir, dirs, files in os.walk(raw_data_path):
-    # Skip the first iteration
-    if not '\\' in subdir:
+    # Skip the first iteration of each new folder
+    if (not '\\' in subdir) or (len(files) == 0):
         continue
     
     # Ignore folder titled 'ignore'
     if 'ignore' in subdir.lower():
         continue
+        
     # Keep track of time for each subdir folder
     time_subdir_start = time.time()
     print('========== SUBDIR START ==========')
@@ -272,14 +346,23 @@ for subdir, dirs, files in os.walk(raw_data_path):
                 continue
             rd_DentRef = int(rd_DentRef[0])
             
-            rd_path = os.path.join(subdir, file)
-            # Load the raw data information
-            rd_axial, rd_circ, rd_radius = collect_raw_data_v1(rd_path)
-            
             # Load the information from the dent registry
             dr_OD, dr_WT, dr_SCF = collect_dent_registry_v1(dr, rd_DentRef)
+            # Check to make sure the data is not empty
+            if pd.isna(dr_OD) or pd.isna(dr_WT) or pd.isna(dr_SCF):
+                continue
             
             dr_IR = dr_OD/2 - dr_WT
+            
+            rd_path = os.path.join(subdir, file)
+            # Load the raw data information
+            if "vendor_1" in subdir:
+                rd_axial, rd_circ, rd_radius = collect_raw_data_v1(rd_path)
+            elif "vendor_2" in subdir:
+                rd_axial, rd_circ, rd_radius = collect_raw_data_v2(rd_path)
+            elif "vendor_3" in subdir:
+                rd_axial, rd_circ, rd_radius = collect_raw_data_v3(rd_path)
+            
             
             # Perform data smoothing on the raw data
             if data_smoothing_bool == True:
@@ -313,7 +396,7 @@ for subdir, dirs, files in os.walk(raw_data_path):
             else:
                 od_radius = np.concatenate((od_radius, pd_radius), axis=0)
                 od_SCF    = np.concatenate((od_SCF, np.array([dr_SCF])), axis=0)
-                
+            
 # =============================================================================
 # EXPORT DATA FOR CURRENT SUBDIR
 # =============================================================================

@@ -341,10 +341,15 @@ for subdir, dirs, files in os.walk(raw_data_path):
             rd_DentRef = file.split('.csv')[0].split('_')
             # This removes the first three items assuming that they are line information
             del rd_DentRef[0:3]
+            
             # Determine the number of dents. If more than one, SKIP
             if len(rd_DentRef) > 1:
                 continue
             rd_DentRef = int(rd_DentRef[0])
+            # Array of Comments to look out for in order to remove
+            # dr_filter = ['underperforming','double','multi','adjacent','girth','influenced','clear','ripple','small']
+            # For the most pristine training data, use only the entries that have NO comments
+            dr = dr[~dr.Comments.notnull()]
             
             # Load the information from the dent registry
             dr_OD, dr_WT, dr_SCF = collect_dent_registry_v1(dr, rd_DentRef)

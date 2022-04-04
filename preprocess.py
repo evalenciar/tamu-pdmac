@@ -22,16 +22,13 @@ from scipy.signal import savgol_filter
 # Plotting Modules
 import matplotlib.pyplot as plt
 
-# Variable nomenclature
-# dr        - dent registry
-# rd        - raw data
-# sd        - smooth data
-# pd        - image data
-# rd_axial  - [inches]  Axial relative position from start value
-# rd_circ   - [degrees] Circumferential position
-# rd_radius - [inches]  Radius difference from nominal internal radius
+time_start = time.time()
 
-dr_header_row = 1  # Row 2  = Index 1
+# =============================================================================
+# DATASET PARAMETERS
+# =============================================================================
+
+index_dataset_name = 'pristine_data_04_04_2022'
 
 # Output Data size
 axial_len   = 200
@@ -39,10 +36,23 @@ circ_len    = 200
 # Data Smoothing
 data_smoothing_bool = True
 
-time_start = time.time()
-raw_data_path       = 'raw_data'
-processed_data_path = 'processed_data'
-training_data_path  = 'training_data'
+# Variable nomenclature
+# dr        - dent registry
+# rd        - raw data
+# sd        - smooth data
+# pd        - image data
+# od        - output data
+# rd_axial  - [inches]  Axial relative position from start value
+# rd_circ   - [degrees] Circumferential position
+# rd_radius - [inches]  Radius difference from nominal internal radius
+
+dr_header_row = 1  # Row 2  = Index 1
+
+# Pre-defined Path Names
+raw_data_path           = 'raw_data'
+processed_data_path     = 'processed_data/'
+training_data_path      = 'training_data/'
+assets_train_images     = 'assets/train_images/'
 
 print('========== START ==========')
 print('%03d | Program began execution.' % (time.time() - time_start))
@@ -151,7 +161,13 @@ def collect_dent_registry_v1(dr, rd_DentRef):
     dr_WT = dr_row['Wall Thickness (inches)'].to_numpy()[0]
     # Collect the SCF value
     dr_SCF = dr_row['SCF (OD)'].to_numpy()[0]
-    return dr_OD, dr_WT, dr_SCF
+    # SMYS (psi)
+    dr_SMYS = dr_row['SMYS (psi)'].to_numpy()[0]
+    # Dent Depth according to FE-DAT analysis
+    dr_DentDepth = dr_row['FE-DAT Dent Depth\n(in)'].to_numpy()[0]
+    # Constrained Dent
+    dr_Constrained = dr_row['Constrained?\n(Assume F=0.6)'].to_numpy()[0]
+    return dr_OD, dr_WT, dr_SCF, dr_SMYS, dr_DentDepth, dr_Constrained
 
 def data_smoothing(rd_axial, rd_circ, rd_radius, dr_OD):
     # print('%03d | ===== DATA SMOOTHING =======' % (time.time() - time_start))
@@ -293,16 +309,6 @@ def data_to_image(sd_radius, dr_IR, axial_len=100, circ_len=100):
         # Check if the dimensions match now
         if pd_radius.shape[0] > circ_len:
             pd_radius = np.delete(pd_radius, 0, 0)
-            
-    # Print image to display resultant dent shape
-    plt.figure()
-    plt.xticks([])
-    plt.yticks([])
-    plt.imshow(pd_radius, cmap=plt.cm.RdYlGn)
-    plt.xlabel(str(rd_DentRef))
-    plt.colorbar()
-    plt.grid(False)
-    plt.show()
     
     return pd_radius
     
@@ -331,6 +337,12 @@ for subdir, dirs, files in os.walk(raw_data_path):
             print('%03d | Found dent registry file.' % (time.time() - time_start))
             dr_path = os.path.join(subdir, file)
             dr = pd.read_excel(dr_path, sheet_name=0, header=dr_header_row)
+            # Array of Comments to look out for in order to remove
+            # dr_filter = ['underperforming','double','multi','adjacent','girth','influenced','clear','ripple','small']
+            # Make a list of the DentRefs that are filtered out in order to skip them
+            dr_skip = dr['Dent Ref #'][dr.Comments.notnull()]
+            # For the most pristine training data, use only the entries that have NO comments
+            dr = dr[~dr.Comments.notnull()]
             
     # Continue looping through all of the other data files
     rd_first_file = True
@@ -346,13 +358,13 @@ for subdir, dirs, files in os.walk(raw_data_path):
             if len(rd_DentRef) > 1:
                 continue
             rd_DentRef = int(rd_DentRef[0])
-            # Array of Comments to look out for in order to remove
-            # dr_filter = ['underperforming','double','multi','adjacent','girth','influenced','clear','ripple','small']
-            # For the most pristine training data, use only the entries that have NO comments
-            dr = dr[~dr.Comments.notnull()]
+            
+            # Check if the DentRef was filtered out
+            if rd_DentRef in set(dr_skip):
+                continue
             
             # Load the information from the dent registry
-            dr_OD, dr_WT, dr_SCF = collect_dent_registry_v1(dr, rd_DentRef)
+            dr_OD, dr_WT, dr_SCF, dr_SMYS, dr_DentDepth, dr_Constrained = collect_dent_registry_v1(dr, rd_DentRef)
             # Check to make sure the data is not empty
             if pd.isna(dr_OD) or pd.isna(dr_WT) or pd.isna(dr_SCF):
                 continue
@@ -380,12 +392,31 @@ for subdir, dirs, files in os.walk(raw_data_path):
             # Output the dent shape in pixel format
             pd_radius = data_to_image(sd_radius, dr_IR, axial_len, circ_len)
             
+            # Tracking Information
+            index_subdir    = subdir.split('\\')[2]
+            index_RunYear   = index_subdir.split(' ')[1]
+            index_Line      = index_subdir.split(' ')[3]
+            index_OrDest    = index_subdir.split(' ')[4] + 'to' + index_subdir.split(' ')[6]
+            index_DentRef   = str(rd_DentRef)
+            index_image     = '_'.join([index_RunYear,index_Line,index_OrDest,index_DentRef])
+            
+            # Print image to display resultant dent shape
+            plt.figure(figsize=(6,6), frameon=False)
+            plt.xticks([])
+            plt.yticks([])
+            plt.imshow(pd_radius, cmap=plt.cm.RdYlGn)
+            # plt.xlabel(str(rd_DentRef))
+            # plt.colorbar()
+            plt.grid(False)
+            plt.savefig(assets_train_images + index_image + '.png', bbox_inches='tight')
+            plt.show()
+            
             # Save the pd_radius into a new .csv file for future reference
             pd_folder = subdir.split(os.path.sep)[-1].replace(" ", "_")
             # Add label to keep track instances with data smoothing
             if data_smoothing_bool == True:
                 pd_folder = pd_folder + '_(SMOOTH)'
-            pd_dir  = processed_data_path + '/' + pd_folder + '/'
+            pd_dir  = processed_data_path + pd_folder + '/'
             pd_path = pd_dir + str(rd_DentRef) + '.csv'
             # Create the new folder directory if it does not already exist
             if not os.path.exists(pd_dir): os.mkdir(pd_dir)
@@ -398,10 +429,40 @@ for subdir, dirs, files in os.walk(raw_data_path):
                 rd_first_file = False
                 od_radius = pd_radius.copy()
                 od_SCF = np.array([dr_SCF])
+                # Create a DataFrame to store the Tracking Information
+                index_subdir    = subdir.split('\\')[2]
+                index_RunYear   = index_subdir.split(' ')[1]
+                index_Line      = index_subdir.split(' ')[3]
+                index_OrDest    = index_subdir.split(' ')[4] + 'to' + index_subdir.split(' ')[6]
+                index_DentRef   = str(rd_DentRef)
+                index_image     = '_'.join([index_RunYear,index_Line,index_OrDest,index_DentRef])
+                index_data = {'Image Name':             [index_image],
+                              'Run Year':               [int(index_RunYear)],
+                              'Line Number':            [index_Line],
+                              'Origin to Destination':  [index_OrDest],
+                              'Dent Reference Number':  [int(index_DentRef)],
+                              'SCF':                    [dr_SCF],
+                              'OD (in)':                [dr_OD], 
+                              'WT (in)':                [dr_WT],
+                              'SMYS (psi)':             [dr_SMYS],
+                              'Dent Depth (psi)':       [dr_DentDepth],
+                              'Constrained?':           [dr_Constrained]}
+                od_index = pd.DataFrame(data=index_data)
             else:
                 od_radius = np.concatenate((od_radius, pd_radius), axis=0)
                 od_SCF    = np.concatenate((od_SCF, np.array([dr_SCF])), axis=0)
-            
+                index_data = {'Image Name':             index_image,
+                              'Run Year':               int(index_RunYear),
+                              'Line Number':            index_Line,
+                              'Origin to Destination':  index_OrDest,
+                              'Dent Reference Number':  int(index_DentRef),
+                              'SCF':                    dr_SCF,
+                              'OD (in)':                dr_OD, 
+                              'WT (in)':                dr_WT,
+                              'SMYS (psi)':             dr_SMYS,
+                              'Dent Depth (psi)':       dr_DentDepth,
+                              'Constrained?':           dr_Constrained}
+                od_index = od_index.append(index_data, ignore_index=True)
 # =============================================================================
 # EXPORT DATA FOR CURRENT SUBDIR
 # =============================================================================
@@ -409,7 +470,7 @@ for subdir, dirs, files in os.walk(raw_data_path):
     # Save the resultant od_radius and od_SCF as python data files.
     # These data files are easily loaded in python for future reference.
     
-    od_path = training_data_path + '/' + pd_folder
+    od_path = training_data_path + pd_folder
     od_radius_path = od_path + '_radius'
     od_SCF_path = od_path + '_SCF'
     
@@ -425,6 +486,9 @@ for subdir, dirs, files in os.walk(raw_data_path):
 # =============================================================================
 # TOTAL EXECUTION TIME
 # =============================================================================
+
+# Save the od_index into an Excel file
+od_index.to_excel(processed_data_path + index_dataset_name + '.xlsx')
 
 # Total time
 time_total = time.time() - time_start

@@ -2,8 +2,10 @@
 archive/
 assets/
 metrics/
+models/
 processed_data/
 raw_data/
+results/
 training_data/
 
 # Byte-compiled / optimized / DLL files

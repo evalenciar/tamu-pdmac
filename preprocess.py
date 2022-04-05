@@ -383,7 +383,6 @@ for subdir, dirs, files in os.walk(raw_data_path):
             elif "vendor_3" in subdir:
                 rd_axial, rd_circ, rd_radius = collect_raw_data_v3(rd_path)
             
-            
             # Perform data smoothing on the raw data
             if data_smoothing_bool == True:
                 sd_axial, sd_circ, sd_radius = data_smoothing(rd_axial, rd_circ, rd_radius, dr_OD)
@@ -454,18 +453,21 @@ for subdir, dirs, files in os.walk(raw_data_path):
             else:
                 od_radius = np.concatenate((od_radius, pd_radius), axis=0)
                 od_SCF    = np.concatenate((od_SCF, np.array([dr_SCF])), axis=0)
-                index_data = {'Image Name':             index_image,
-                              'Run Year':               int(index_RunYear),
-                              'Line Number':            index_Line,
-                              'Origin to Destination':  index_OrDest,
-                              'Dent Reference Number':  int(index_DentRef),
-                              'SCF':                    dr_SCF,
-                              'OD (in)':                dr_OD, 
-                              'WT (in)':                dr_WT,
-                              'SMYS (psi)':             dr_SMYS,
-                              'Dent Depth (psi)':       dr_DentDepth,
-                              'Constrained?':           dr_Constrained}
-                od_index = od_index.append(index_data, ignore_index=True)
+                index_data = {'Image Name':             [index_image],
+                              'Run Year':               [int(index_RunYear)],
+                              'Line Number':            [index_Line],
+                              'Origin to Destination':  [index_OrDest],
+                              'Dent Reference Number':  [int(index_DentRef)],
+                              'SCF':                    [dr_SCF],
+                              'OD (in)':                [dr_OD], 
+                              'WT (in)':                [dr_WT],
+                              'SMYS (psi)':             [dr_SMYS],
+                              'Dent Depth (psi)':       [dr_DentDepth],
+                              'Constrained?':           [dr_Constrained]}
+                # od_index = od_index.append(index_data, ignore_index=True)
+                od_index_temp = pd.DataFrame(data=index_data)
+                od_index = pd.concat([od_index,od_index_temp], ignore_index=True)
+                
 # =============================================================================
 # EXPORT DATA FOR CURRENT SUBDIR
 # =============================================================================

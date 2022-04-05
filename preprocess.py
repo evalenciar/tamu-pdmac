@@ -163,8 +163,11 @@ def collect_dent_registry_v1(dr, rd_DentRef):
     dr_SCF = dr_row['SCF (OD)'].to_numpy()[0]
     # SMYS (psi)
     dr_SMYS = dr_row['SMYS (psi)'].to_numpy()[0]
-    # Dent Depth according to FE-DAT analysis
-    dr_DentDepth = dr_row['FE-DAT Dent Depth\n(in)'].to_numpy()[0]
+    try:
+        # Dent Depth according to FE-DAT analysis
+        dr_DentDepth = dr_row['FE-DAT Dent Depth\n(in)'].to_numpy()[0]
+    except:
+        dr_DentDepth = 'nan'
     # Constrained Dent
     dr_Constrained = dr_row['Constrained?\n(Assume F=0.6)'].to_numpy()[0]
     return dr_OD, dr_WT, dr_SCF, dr_SMYS, dr_DentDepth, dr_Constrained

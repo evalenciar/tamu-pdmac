@@ -28,13 +28,16 @@ time_start = time.time()
 # DATASET PARAMETERS
 # =============================================================================
 
-index_dataset_name = 'pristine_data_04_04_2022'
+index_dataset_name = 'raw_all_data_04_14_2022'
+images_size = [10,10]
 
 # Output Data size
-axial_len   = 200
-circ_len    = 200
+axial_len   = 400 # 200
+circ_len    = 100 # 200
 # Data Smoothing
-data_smoothing_bool = True
+data_smoothing_bool = False
+# All or Pristine Data
+data_raw = True
 
 # Variable nomenclature
 # dr        - dent registry
@@ -256,7 +259,7 @@ def data_smoothing(rd_axial, rd_circ, rd_radius, dr_OD):
     
     return z_f, theta_f, radius_f
 
-def data_to_image(sd_radius, dr_IR, axial_len=100, circ_len=100):
+def data_to_image(sd_radius, dr_IR, axial_len, circ_len):
     # Starting from the center of the dent, collect a perimeter
     # Output data must be in (axial_len, circ_len) dimensions
     # axial_len = 100
@@ -280,15 +283,15 @@ def data_to_image(sd_radius, dr_IR, axial_len=100, circ_len=100):
     min_ind = np.unravel_index(np.argmin(sd_radius), sd_radius.shape)
     
     # Copy and paste from the center to the limits
-    axial_LB = min_ind[0] - int(axial_len/2)
-    axial_UB = min_ind[0] + int(axial_len/2)
-    circ_LB  = min_ind[1] - int(circ_len/2)
-    circ_UB  = min_ind[1] + int(circ_len/2)
+    axial_LB = min_ind[1] - int(axial_len/2)
+    axial_UB = min_ind[1] + int(axial_len/2)
+    circ_LB  = min_ind[0] - int(circ_len/2)
+    circ_UB  = min_ind[0] + int(circ_len/2)
     
     if axial_LB < 0: axial_LB = 0
     if circ_LB < 0: circ_LB = 0
     
-    pd_radius = sd_radius[axial_LB:axial_UB, circ_LB:circ_UB]
+    pd_radius = sd_radius[circ_LB:circ_UB, axial_LB:axial_UB]
 
     # Normalize the Radial values
     # Since the input data is already the difference form the nominal
@@ -319,6 +322,9 @@ def data_to_image(sd_radius, dr_IR, axial_len=100, circ_len=100):
 # ITERATE THROUGH ALL ILI DATA FILES
 # =============================================================================
 
+# Need to initialize the od_index to create the compiled Excel Workbook
+od_index_first_file = True
+
 # Updated the for loop to go through deeper folders
 for subdir, dirs, files in os.walk(raw_data_path):
     # Skip the first iteration of each new folder
@@ -342,10 +348,12 @@ for subdir, dirs, files in os.walk(raw_data_path):
             dr = pd.read_excel(dr_path, sheet_name=0, header=dr_header_row)
             # Array of Comments to look out for in order to remove
             # dr_filter = ['underperforming','double','multi','adjacent','girth','influenced','clear','ripple','small']
-            # Make a list of the DentRefs that are filtered out in order to skip them
-            dr_skip = dr['Dent Ref #'][dr.Comments.notnull()]
-            # For the most pristine training data, use only the entries that have NO comments
-            dr = dr[~dr.Comments.notnull()]
+            
+            if data_raw == False:
+                # Make a list of the DentRefs that are filtered out in order to skip them
+                dr_skip = dr['Dent Ref #'][dr.Comments.notnull()]
+                # For the most pristine training data, use only the entries that have NO comments
+                dr = dr[~dr.Comments.notnull()]
             
     # Continue looping through all of the other data files
     rd_first_file = True
@@ -362,9 +370,10 @@ for subdir, dirs, files in os.walk(raw_data_path):
                 continue
             rd_DentRef = int(rd_DentRef[0])
             
-            # Check if the DentRef was filtered out
-            if rd_DentRef in set(dr_skip):
-                continue
+            if data_raw == False:
+                # Check if the DentRef was filtered out
+                if rd_DentRef in set(dr_skip):
+                    continue
             
             # Load the information from the dent registry
             dr_OD, dr_WT, dr_SCF, dr_SMYS, dr_DentDepth, dr_Constrained = collect_dent_registry_v1(dr, rd_DentRef)
@@ -403,7 +412,7 @@ for subdir, dirs, files in os.walk(raw_data_path):
             index_image     = '_'.join([index_RunYear,index_Line,index_OrDest,index_DentRef])
             
             # Print image to display resultant dent shape
-            plt.figure(figsize=(6,6), frameon=False)
+            plt.figure(figsize=(images_size[0], images_size[1]), frameon=False)
             plt.xticks([])
             plt.yticks([])
             plt.imshow(pd_radius, cmap=plt.cm.RdYlGn)
@@ -424,13 +433,8 @@ for subdir, dirs, files in os.walk(raw_data_path):
             if not os.path.exists(pd_dir): os.mkdir(pd_dir)
             np.savetxt(pd_path, pd_radius, delimiter=',')
             
-            # Create python inventory for quick access
-            pd_radius = np.expand_dims(pd_radius, axis=0)
-            if rd_first_file == True:
-                # Do nothing
-                rd_first_file = False
-                od_radius = pd_radius.copy()
-                od_SCF = np.array([dr_SCF])
+            if od_index_first_file == True:
+                od_index_first_file = False
                 # Create a DataFrame to store the Tracking Information
                 index_subdir    = subdir.split('\\')[2]
                 index_RunYear   = index_subdir.split(' ')[1]
@@ -450,6 +454,14 @@ for subdir, dirs, files in os.walk(raw_data_path):
                               'Dent Depth (psi)':       [dr_DentDepth],
                               'Constrained?':           [dr_Constrained]}
                 od_index = pd.DataFrame(data=index_data)
+                
+            # Create python inventory for quick access
+            pd_radius = np.expand_dims(pd_radius, axis=0)
+            if rd_first_file == True:
+                # Do nothing
+                rd_first_file = False
+                od_radius = pd_radius.copy()
+                od_SCF = np.array([dr_SCF])
             else:
                 od_radius = np.concatenate((od_radius, pd_radius), axis=0)
                 od_SCF    = np.concatenate((od_SCF, np.array([dr_SCF])), axis=0)
@@ -478,6 +490,10 @@ for subdir, dirs, files in os.walk(raw_data_path):
     od_path = training_data_path + pd_folder
     od_radius_path = od_path + '_radius'
     od_SCF_path = od_path + '_SCF'
+    
+    # Expand the dimensions so that the resultant tensors are 3D tensors (samples, height, width, channels)
+    # Example: (4600, 200, 200, 1) for 4,600 images that are 200x200 size, and single color channel (BW)
+    od_radius = np.expand_dims(od_radius, axis=3)
     
     np.save(od_radius_path, od_radius)
     np.save(od_SCF_path, od_SCF)
